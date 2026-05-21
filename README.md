@@ -1,3 +1,4 @@
+```
 node.json をロード
 edge.json をロード
 while True
@@ -23,3 +24,4 @@ while True
                 edge.json 更新
             else
                 元 command 継続
+```
