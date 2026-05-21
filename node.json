@@ -1,9 +1,9 @@
 {
-    0:{"cmd":"ls sys/*.pdb"},
-    1:{"cmd":"ls sys/clean.pdb"},
-    2:{"cmd":"ls sys/newbox.gro"},
-    3:{"cmd":"ls sys/solv.gro"},
-    4:{"cmd":"ls sys/ions.tpr"},
-    5:{"cmd":"ls sys/ions.gro"},
-    6:{"cmd":"ls sys/MD.gro"}
+    "0": {"cmd": "ls sys/*.pdb"},
+    "1": {"cmd": "ls sys/clean.pdb"},
+    "2": {"cmd": "ls sys/newbox.gro"},
+    "3": {"cmd": "ls sys/solv.gro"},
+    "4": {"cmd": "ls sys/ions.tpr"},
+    "5": {"cmd": "ls sys/ions.gro"},
+    "6": {"cmd": "ls sys/MD.gro"}
 }
