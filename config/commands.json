@@ -1,0 +1,65 @@
+{
+  "pymol_clean": {
+    "cmd": "{PYMOL} -cq -d \"load {pdb_path}; remove not polymer; save {cle_pdb}; quit\""
+  },
+
+  "pdb2gmx": {
+    "cmd": "{GMX} pdb2gmx -f {cle_pdb} -o {pro_gro} -p {pro_top} -water {WATER_MODEL} -ff {FF}"
+  },
+
+  "editconf": {
+    "cmd": "{GMX} editconf -f {pro_gro} -o {box_gro} -c -d {DISTANCE} -bt cubic"
+  },
+
+  "solvate": {
+    "cmd": "{GMX} solvate -cp {box_gro} -cs {WATERBOXFILE} -o {sol_gro} -p {sol_top}"
+  },
+
+  "grompp_ions": {
+    "cmd": "{GMX} grompp -f {ions_mdp} -c {sol_gro} -p {sol_top} -o {ions_tpr} -maxwarn 1"
+  },
+
+  "genion": {
+    "cmd": "echo SOL | {GMX} genion -s {ions_tpr} -o {ions_gro} -p {ions_top} -pname NA -nname CL -neutral"
+  },
+
+  "em_grompp": {
+    "cmd": "{GMX} grompp -f {em_mdp} -c {md_gro} -p {md_top} -o {em_tpr}"
+  },
+
+  "em_mdrun": {
+    "cmd": "{GMX} mdrun -deffnm em"
+  },
+
+  "nvt_grompp": {
+    "cmd": "{GMX} grompp -f {nvt_mdp} -c {em_gro} -r {em_gro} -p {md_top} -o {nvt_tpr}"
+  },
+
+  "nvt_mdrun": {
+    "cmd": "{GMX} mdrun -deffnm nvt"
+  },
+
+  "npt_br_grompp": {
+    "cmd": "{GMX} grompp -f {npt_br_mdp} -c {nvt_gro} -r {nvt_gro} -p {md_top} -o {npt_br_tpr}"
+  },
+
+  "npt_br_mdrun": {
+    "cmd": "{GMX} mdrun -deffnm npt_br"
+  },
+
+  "npt_pr_grompp": {
+    "cmd": "{GMX} grompp -f {npt_pr_mdp} -c {npt_br_gro} -r {npt_br_gro} -p {md_top} -o {npt_pr_tpr}"
+  },
+
+  "npt_pr_mdrun": {
+    "cmd": "{GMX} mdrun -deffnm npt_pr"
+  },
+
+  "md_grompp": {
+    "cmd": "{GMX} grompp -f {md_mdp} -c {npt_pr_gro} -p {md_top} -o {md_tpr}"
+  },
+
+  "md_mdrun": {
+    "cmd": "{GMX} mdrun -deffnm md"
+  }
+}
