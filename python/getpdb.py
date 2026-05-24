@@ -7,32 +7,48 @@ def fasta_to_pir(t,c):
     s="".join([l.strip() for l in t.splitlines() if not l.startswith(">")])
     return f">P1;{c}\nsequence:{c}:::::::0.00:0.00\n{s}*"
 
-def build_model(p):
-    p=p.upper()
-    u=f"https://files.rcsb.org/download/{p}.pdb"
-    r=requests.get(u);r.raise_for_status()
-    open("input.pdb","w").write(r.text)
-    cmd.load("input.pdb","m")
-    cmd.remove("not polymer.protein")
-    cmd.save("template_clean.pdb","m")
-    cmd.delete("all")
-    f=f"https://www.rcsb.org/fasta/entry/{p}/download"
-    r=requests.get(f);r.raise_for_status()
-    open("target.pir","w").write(fasta_to_pir(r.text,"TARGET"))
-    e=Environ();e.io.atom_files_directory=["."];e.io.hetatm=True
-    a=Alignment(e)
-    m=Model(e,file="template_clean.pdb",model_segment=('FIRST:A','LAST:A'))
-    a.append_model(m,align_codes="TEMPLATE")
-    a.append(file="target.pir",align_codes="TARGET")
-    a.align2d()
-    a.write(file="alignment.ali",alignment_format="PIR")
-    class M(AutoModel): pass
-    x=M(e,alnfile="alignment.ali",knowns="TEMPLATE",sequence="TARGET")
-    x.starting_model=1;x.ending_model=1
-    x.make()
-    o="TARGET.B99990001.pdb"
-    if os.path.exists(o):os.rename(o,"clean.pdb")
-    print("DONE")
+import os
+from modeller import *
+from modeller.automodel import *
+
+def run_modeller_pipeline(base_path, pdbid, target_code, sequence):
+    pdbid = pdbid.upper()
+    sys_dir = os.path.join(base_path, "sys")
+    os.makedirs(sys_dir, exist_ok=True)
+    
+    # ファイルパス設定
+    pir_file = os.path.join(sys_dir, "target.ali")
+    ali_file = os.path.join(sys_dir, "alignment.ali")
+    
+    # 1. PIR形式の作成 (チュートリアル同様のヘッダーフォーマット)
+    with open(pir_file, "w") as f:
+        f.write(f">P1;{target_code}\nsequence:{target_code}:::::::0.00:0.00\n{sequence}*")
+
+    env = Environ()
+    env.io.atom_files_directory = [sys_dir]
+    aln = Alignment(env)
+    mdl = Model(env, file=pdbid)
+    aln.append_model(mdl, align_codes=pdbid, atom_files=f"{pdbid}.pdb")
+    aln.append(file=pir_file, align_codes=target_code)
+    
+    aln.align2d()
+    aln.write(file=ali_file, alignment_format="PIR")
+    
+    # 4. モデル構築
+    class M(AutoModel):
+        def select_atoms(self):
+            return Selection(self.chains)
+
+    a = M(env, 
+          alnfile=ali_file, 
+          knowns=pdbid, 
+          sequence=target_code)
+    
+    a.starting_model = 1
+    a.ending_model = 1
+    a.make()
+    
+    return f"{target_code}.B99990001.pdb"
 
 if __name__=="__main__":
     if len(sys.argv)!=2:sys.exit(1)
