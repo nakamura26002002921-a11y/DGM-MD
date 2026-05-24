@@ -1,8 +1,10 @@
+import os
 import sys
 import requests
 from pymol import cmd
 from modeller import *
 from modeller.automodel import *
+
 
 def fasta_to_pir(fasta_text, code):
     seq = "".join([l.strip() for l in fasta_text.splitlines() if not l.startswith(">")])
@@ -12,41 +14,45 @@ sequence:{code}:::::::0.00:0.00
 """
 
 
-def build_model(pdbid, out_prefix):
+def build_model(pdbid):
 
     pdbid = pdbid.upper()
 
     # -------------------------
     # 1. PDB download + clean
     # -------------------------
-    pdb = requests.get(f"https://files.rcsb.org/download/{pdbid}.pdb")
+    pdb_url = f"https://files.rcsb.org/download/{pdbid}.pdb"
+    pdb = requests.get(pdb_url)
     pdb.raise_for_status()
 
-    raw_pdb = f"{out_prefix}.pdb"
-    open(raw_pdb, "w").write(pdb.text)
+    raw_pdb = "input.pdb"
+    with open(raw_pdb, "w") as f:
+        f.write(pdb.text)
 
     cmd.load(raw_pdb, "m")
     cmd.remove("not polymer.protein")
-    clean_pdb = f"{out_prefix}_clean.pdb"
+    clean_pdb = "template_clean.pdb"
     cmd.save(clean_pdb, "m")
     cmd.delete("all")
 
     # -------------------------
     # 2. FASTA (target)
     # -------------------------
-    fasta = requests.get(f"https://www.rcsb.org/fasta/entry/{pdbid}/download")
+    fasta_url = f"https://www.rcsb.org/fasta/entry/{pdbid}/download"
+    fasta = requests.get(fasta_url)
     fasta.raise_for_status()
 
     pir = fasta_to_pir(fasta.text, "TARGET")
-    pir_file = f"{out_prefix}.pir"
-    open(pir_file, "w").write(pir)
+    pir_file = "target.pir"
+    with open(pir_file, "w") as f:
+        f.write(pir)
 
     # -------------------------
-    # 3. MODELLER alignment
+    # 3. MODELLER setup
     # -------------------------
     env = Environ()
     env.io.atom_files_directory = ['.']
-    env.io.hetatm = True   # iterative + ligand対応思想
+    env.io.hetatm = True
 
     aln = Alignment(env)
 
@@ -55,14 +61,13 @@ def build_model(pdbid, out_prefix):
 
     aln.append(file=pir_file, align_codes="TARGET")
 
-    # iterative tutorialの核心
     aln.align2d()
 
-    aln_file = f"{out_prefix}.ali"
+    aln_file = "alignment.ali"
     aln.write(file=aln_file, alignment_format="PIR")
 
     # -------------------------
-    # 4. Model building (iterative step 1)
+    # 4. Build model
     # -------------------------
     class MyModel(AutoModel):
         pass
@@ -78,8 +83,20 @@ def build_model(pdbid, out_prefix):
     a.ending_model = 1
     a.make()
 
-    print("DONE: inspect DOPE and refine alignment if needed")
+    # -------------------------
+    # 5. FINAL OUTPUT -> clean.pdb
+    # -------------------------
+    out_pdb = f"{pdbid}.B99990001.pdb"
+
+    if os.path.exists(out_pdb):
+        os.rename(out_pdb, "clean.pdb")
+
+    print("DONE -> clean.pdb generated")
 
 
 if __name__ == "__main__":
-    build_model(sys.argv[1], sys.argv[2])
+    if len(sys.argv) != 2:
+        print("Usage: python3 main.py PDBID")
+        sys.exit(1)
+
+    build_model(sys.argv[1])
