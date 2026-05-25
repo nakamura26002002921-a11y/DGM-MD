@@ -194,6 +194,17 @@ def build_from_threading_ali(workdir,ali_file,template_code,sequence,n_models=5,
     return [p for _,p in sc]
 
 if __name__=="__main__":
-    import sys,os;t=sys.argv[1];w=os.path.join("./modeller_work",t);os.makedirs(w,exist_ok=True)
-    pdbs=build_single_model(w,f"{t}.ali",f"{t}A",t,5)
-    pdbs and open(f"{t}.pdb","wb").write(open(pdbs[0],"rb").read())
+    import sys,os,requests
+    t=sys.argv[1]
+    w=f"./modeller_work/{t}"
+    os.makedirs(w,exist_ok=True)
+    p=f"{w}/{t}.pdb"
+    r=f"{w}/{t}.pir"
+    if not os.path.exists(p):open(p,"wb").write(requests.get(f"https://files.rcsb.org/download/{t}.pdb",timeout=60).content)
+    if not os.path.exists(r):
+        f=requests.get(f"https://www.rcsb.org/fasta/entry/{t}/download",timeout=60);f.raise_for_status()
+        s="".join(i.strip() for i in f.text.splitlines() if not i.startswith(">"))
+        open(r,"w").write(f">P1;{t}\nsequence:{t}:::::::0.00:0.00\n{s}*\n")
+    ali=align2d_single(w,f"{t}.pdb","A",f"{t}.pir",t)
+    pdbs=build_single_model(w,os.path.basename(ali),f"{t}A",t,5)
+    if pdbs:open(f"{t}.pdb","wb").write(open(pdbs[0],"rb").read())
