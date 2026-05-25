@@ -175,16 +175,12 @@ def build_from_threading_ali(workdir,ali_file,template_code,sequence,n_models=5,
 
 if __name__=="__main__":
     import sys,os,requests
-    t=sys.argv[1]
-    w=f"./modeller_work/{t}"
-    os.makedirs(w,exist_ok=True)
-    p=f"{w}/{t}.pdb"
-    r=f"{w}/{t}.pir"
-    if not os.path.exists(p):open(p,"wb").write(requests.get(f"https://files.rcsb.org/download/{t}.pdb",timeout=60).content)
-    if not os.path.exists(r):
-        f=requests.get(f"https://www.rcsb.org/fasta/entry/{t}/download",timeout=60);f.raise_for_status()
-        s="".join(i.strip() for i in f.text.splitlines() if not i.startswith(">"))
-        open(r,"w").write(f">P1;{t}\nsequence:{t}:::::::0.00:0.00\n{s}*\n")
-    ali=align2d_single(w,f"{t}.pdb","A",f"{t}.pir",t)
-    pdbs=build_single_model(w,os.path.basename(ali),f"{t}A",t,5)
-    if pdbs:open(f"{t}.pdb","wb").write(open(pdbs[0],"rb").read())
+    if len(sys.argv)<2:print(f"usage: python3 {sys.argv[0]} <PDB_ID>");sys.exit(1)
+    t=sys.argv[1].upper();w=f"./modeller_work/{t}";os.makedirs(w,exist_ok=True)
+    p=f"{w}/{t}.pdb";f=f"{w}/{t}.fasta";r=f"{w}/{t}.pir"
+    if not os.path.exists(p):x=requests.get(f"https://files.rcsb.org/download/{t}.pdb",timeout=60);x.raise_for_status();open(p,"wb").write(x.content)
+    if not os.path.exists(f):x=requests.get(f"https://www.rcsb.org/fasta/entry/{t}/download",timeout=60);x.raise_for_status();open(f,"w").write(x.text)
+    if not os.path.exists(r):open(r,"w").write(fasta_to_pir(open(f).read(),t))
+    a=align2d_single(workdir=w,template_pdb=p,template_chain='A',query_pir=r,query_code=t)
+    build_single_model(workdir=w,ali_file=a,template_code=f"{t}A",sequence=t,n_models=5)
+    print(_best_dope_model(w,t))
