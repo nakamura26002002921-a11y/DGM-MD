@@ -5,193 +5,173 @@ from modeller.automodel import *
 from modeller.scripts import complete_pdb
 
 @contextmanager
-def _in_dir(path):
-    o=os.getcwd();os.makedirs(path,exist_ok=True);os.chdir(path)
-    try:yield path
+def _in_dir(p):
+    o=os.getcwd();os.makedirs(p,exist_ok=True);os.chdir(p)
+    try:yield p
     finally:os.chdir(o)
 
-def fasta_to_pir(fasta_text,code):
-    seq="".join(l.strip() for l in fasta_text.splitlines() if not l.startswith(">"))
-    return f">P1;{code}\nsequence:{code}:::::::0.00: 0.00\n{seq}*\n"
+def fasta_to_pir(f,c):
+    s=''.join(i.strip()for i in f.splitlines()if not i.startswith('>'))
+    return f'>P1;{c}\nsequence:{c}:::::::0.00: 0.00\n{s}*\n'
 
-def _best_dope_model(workdir,sequence):
-    pattern=os.path.join(workdir,f"{sequence}.B9999*.pdb")
-    cs=glob.glob(pattern)
-    if not cs:raise FileNotFoundError(pattern)
-    env=Environ()
-    env.libs.topology.read(file="$(LIB)/top_heav.lib")
-    env.libs.parameters.read(file="$(LIB)/par.lib")
-    best,b=float("inf"),None
-    for p in cs:
-        mdl=complete_pdb(env,p);s=Selection(mdl);sc=s.assess_dope()
-        if sc<best:best,bb=sc,p
-    return bb
+def _best_dope_model(w,s):
+    g=glob.glob(os.path.join(w,f'{s}.B9999*.pdb'))
+    if not g:raise FileNotFoundError(f'モデル PDB が見つかりません: {os.path.join(w,f"{s}.B9999*.pdb")}')
+    e=Environ();e.libs.topology.read(file='$(LIB)/top_heav.lib');e.libs.parameters.read(file='$(LIB)/par.lib')
+    b,k=None,float('inf')
+    for p in g:
+        d=Selection(complete_pdb(e,p)).assess_dope()
+        if d<k:k,b=d,p
+    return b
 
-def build_profile(workdir,query_pir,pdb_db_pir,query_code="TARGET",matrix_offset=-450,gap_penalties_1d=(-500,-50),max_aln_evalue=0.01,n_prof_iterations=1):
+def build_profile(workdir,query_pir,pdb_db_pir,query_code='TARGET',matrix_offset=-450,gap_penalties_1d=(-500,-50),max_aln_evalue=.01,n_prof_iterations=1):
     with _in_dir(workdir):
-        log.verbose();env=Environ()
-        sdb=SequenceDB(env);bin_db="pdb_95.bin"
-        if not os.path.exists(bin_db):
-            sdb.read(seq_database_file=pdb_db_pir,seq_database_format="PIR",chains_list="ALL",minmax_db_seq_len=(30,4000),clean_sequences=True)
-            sdb.write(seq_database_file=bin_db,seq_database_format="BINARY",chains_list="ALL")
-        sdb.read(seq_database_file=bin_db,seq_database_format="BINARY",chains_list="ALL")
-        aln=Alignment(env);aln.append(file=query_pir,alignment_format="PIR",align_codes="ALL")
-        prf=aln.to_profile()
-        prf.build(sdb,matrix_offset=matrix_offset,rr_file="${LIB}/blosum62.sim.mat",gap_penalties_1d=gap_penalties_1d,n_prof_iterations=n_prof_iterations,check_profile=False,max_aln_evalue=max_aln_evalue)
-        prf.write(file="build_profile.prf",profile_format="TEXT")
-    return os.path.join(workdir,"build_profile.prf")
+        log.verbose();e=Environ();s=SequenceDB(e);b='pdb_95.bin'
+        if not os.path.exists(b):
+            s.read(seq_database_file=pdb_db_pir,seq_database_format='PIR',chains_list='ALL',minmax_db_seq_len=(30,4000),clean_sequences=True)
+            s.write(seq_database_file=b,seq_database_format='BINARY',chains_list='ALL')
+        s.read(seq_database_file=b,seq_database_format='BINARY',chains_list='ALL')
+        a=Alignment(e);a.append(file=query_pir,alignment_format='PIR',align_codes='ALL')
+        p=a.to_profile()
+        p.build(s,matrix_offset=matrix_offset,rr_file='${LIB}/blosum62.sim.mat',gap_penalties_1d=gap_penalties_1d,n_prof_iterations=n_prof_iterations,check_profile=False,max_aln_evalue=max_aln_evalue)
+        p.write(file='build_profile.prf',profile_format='TEXT')
+        a=p.to_alignment();a.write(file='build_profile.ali',alignment_format='PIR')
+    return os.path.join(workdir,'build_profile.prf')
 
-def compare_templates(workdir,template_list,atom_files_dir="."):
+def compare_templates(workdir,template_list,atom_files_dir='.'):
     with _in_dir(workdir):
-        env=Environ();env.io.atom_files_directory=[atom_files_dir,"."]
-        aln=Alignment(env)
+        e=Environ();e.io.atom_files_directory=[atom_files_dir,'.'];a=Alignment(e)
         for p,c in template_list:
-            m=Model(env,file=p,model_segment=(f"FIRST:{c}",f"LAST:{c}"))
-            aln.append_model(m,atom_files=p,align_codes=p+c)
-        aln.malign();aln.malign3d();aln.compare_structures()
-        aln.id_table(matrix_file="family.mat");env.dendrogram(matrix_file="family.mat",cluster_cut=-1.0)
-    return os.path.join(workdir,"compare.log")
+            a.append_model(Model(e,file=p,model_segment=(f'FIRST:{c}',f'LAST:{c}')),atom_files=p,align_codes=p+c)
+        a.malign();a.malign3d();a.compare_structures();a.id_table(matrix_file='family.mat');e.dendrogram(matrix_file='family.mat',cluster_cut=-1.)
+    return os.path.join(workdir,'compare.log')
 
 def align2d_single(workdir,template_pdb,template_chain,query_pir,query_code,template_code=None,max_gap_length=50):
-    pdb_base=os.path.splitext(os.path.basename(template_pdb))[0]
-    template_code=template_code or pdb_base+template_chain
-    ali_out=f"{query_code}-{template_code}.ali"
+    b=os.path.splitext(os.path.basename(template_pdb))[0]
+    if template_code is None:template_code=b+template_chain
+    o=f'{query_code}-{template_code}.ali'
     with _in_dir(workdir):
-        env=Environ()
-        env.io.atom_files_directory=[os.path.dirname(os.path.abspath(template_pdb)) or ".", "."]
-        aln=Alignment(env)
-        mdl=Model(env,file=template_pdb,model_segment=(f"FIRST:{template_chain}",f"LAST:{template_chain}"))
-        aln.append_model(mdl,align_codes=template_code,atom_files=template_pdb)
-        aln.append(file=query_pir,align_codes=query_code)
-        aln.align2d(max_gap_length=max_gap_length)
-        aln.write(file=ali_out,alignment_format="PIR")
-    return os.path.join(workdir,ali_out)
+        e=Environ();e.io.atom_files_directory=[os.path.dirname(os.path.abspath(template_pdb))or'.','.']
+        a=Alignment(e)
+        a.append_model(Model(e,file=template_pdb,model_segment=(f'FIRST:{template_chain}',f'LAST:{template_chain}')),align_codes=template_code,atom_files=template_pdb)
+        a.append(file=query_pir,align_codes=query_code);a.align2d(max_gap_length=max_gap_length)
+        a.write(file=o,alignment_format='PIR');a.write(file=o.replace('.ali','.pap'),alignment_format='PAP')
+    return os.path.join(workdir,o)
 
 def build_single_model(workdir,ali_file,template_code,sequence,n_models=5,assess_methods=None):
     if assess_methods is None:assess_methods=(assess.DOPE,assess.GA341)
     with _in_dir(workdir):
-        env=Environ()
-        env.io.atom_files_directory=[os.path.dirname(os.path.abspath(ali_file)) or ".", "."]
-        a=AutoModel(env,alnfile=os.path.abspath(ali_file),knowns=template_code,sequence=sequence,assess_methods=assess_methods)
+        e=Environ();e.io.atom_files_directory=[os.path.dirname(os.path.abspath(ali_file))or'.','.']
+        a=AutoModel(e,alnfile=os.path.abspath(ali_file),knowns=template_code,sequence=sequence,assess_methods=assess_methods)
         a.starting_model=1;a.ending_model=n_models;a.make()
-    return sorted(glob.glob(os.path.join(workdir,f"{sequence}.B9999*.pdb")))
+    return sorted(glob.glob(os.path.join(workdir,f'{sequence}.B9999*.pdb')))
 
 def evaluate_model(workdir,pdb_file,output_profile=None,smoothing_window=15):
-    pdb_base=os.path.splitext(os.path.basename(pdb_file))[0]
-    output_profile=output_profile or f"{pdb_base}.profile"
+    b=os.path.splitext(os.path.basename(pdb_file))[0]
+    if output_profile is None:output_profile=f'{b}.profile'
     with _in_dir(workdir):
-        log.verbose();env=Environ()
-        env.libs.topology.read(file="$(LIB)/top_heav.lib")
-        env.libs.parameters.read(file="$(LIB)/par.lib")
-        mdl=complete_pdb(env,os.path.abspath(pdb_file))
-        s=Selection(mdl)
-        s.assess_dope(output="ENERGY_PROFILE NO_REPORT",file=output_profile,normalize_profile=True,smoothing_window=smoothing_window)
+        log.verbose();e=Environ();e.libs.topology.read(file='$(LIB)/top_heav.lib');e.libs.parameters.read(file='$(LIB)/par.lib')
+        Selection(complete_pdb(e,os.path.abspath(pdb_file))).assess_dope(output='ENERGY_PROFILE NO_REPORT',file=output_profile,normalize_profile=True,smoothing_window=smoothing_window)
     return os.path.join(workdir,output_profile)
 
-def salign_multiple_templates(workdir,template_list,atom_files_dir=".",output_ali="templates_mult.ali"):
+def salign_multiple_templates(workdir,template_list,atom_files_dir='.',output_ali='templates_mult.ali'):
     with _in_dir(workdir):
-        env=Environ();env.io.atom_files_directory=[atom_files_dir,"."]
-        aln=Alignment(env)
-        for c,ch in template_list:
-            mdl=Model(env,file=c,model_segment=(f"FIRST:{ch}",f"LAST:{ch}"))
-            aln.append_model(mdl,atom_files=c,align_codes=c+ch)
-        for w,rf,wh in(((1.,0.,0.,0.,1.,0.),False,True),((1.,0.5,1.,1.,1.,0.),False,True),((1.,1.,1.,1.,1.,0.),True,False)):
-            aln.salign(rms_cutoff=3.5,rr_file="$(LIB)/as1.sim.mat",overhang=30,gap_penalties_1d=(-450,-50),gap_penalties_3d=(0,3),feature_weights=w,improve_alignment=True,fit=True,write_fit=rf,write_whole_pdb=wh,output="ALIGNMENT QUALITY")
-        aln.write(file=output_ali,alignment_format="PIR")
+        log.verbose();e=Environ();e.io.atom_files_directory=[atom_files_dir,'.'];a=Alignment(e)
+        for c,h in template_list:
+            a.append_model(Model(e,file=c,model_segment=(f'FIRST:{h}',f'LAST:{h}')),atom_files=c,align_codes=c+h)
+        for w,f,o in(((1.,0.,0.,0.,1.,0.),False,True),((1.,.5,1.,1.,1.,0.),False,True),((1.,1.,1.,1.,1.,0.),True,False)):
+            a.salign(rms_cutoff=3.5,normalize_pp_scores=False,rr_file='$(LIB)/as1.sim.mat',overhang=30,gap_penalties_1d=(-450,-50),gap_penalties_3d=(0,3),gap_gap_score=0,gap_residue_score=0,dendrogram_file='templates.tree',alignment_type='tree',feature_weights=w,improve_alignment=True,fit=True,write_fit=f,write_whole_pdb=o,output='ALIGNMENT QUALITY')
+        a.write(file=output_ali.replace('.ali','.pap'),alignment_format='PAP');a.write(file=output_ali,alignment_format='PIR')
+        a.salign(rms_cutoff=1.,normalize_pp_scores=False,rr_file='$(LIB)/as1.sim.mat',overhang=30,gap_penalties_1d=(-450,-50),gap_penalties_3d=(0,3),gap_gap_score=0,gap_residue_score=0,dendrogram_file='templates_quality.tree',alignment_type='progressive',feature_weights=[0]*6,improve_alignment=False,fit=False,write_fit=True,write_whole_pdb=False,output='QUALITY')
     return os.path.join(workdir,output_ali)
 
-def align2d_multiple(workdir,templates_ali,query_pir,query_code,output_ali="query_mult.ali",max_gap_length=20):
+def align2d_multiple(workdir,templates_ali,query_pir,query_code,output_ali='query_mult.ali',max_gap_length=20):
     with _in_dir(workdir):
-        env=Environ()
-        aln=Alignment(env)
-        aln.append(file=os.path.abspath(templates_ali),align_codes="all")
-        n=len(aln)
-        aln.append(file=os.path.abspath(query_pir),align_codes=query_code)
-        aln.salign(output="",max_gap_length=max_gap_length,gap_function=True,alignment_type="PAIRWISE",align_block=n)
-        aln.write(file=output_ali,alignment_format="PIR")
+        log.verbose();e=Environ();e.libs.topology.read(file='$(LIB)/top_heav.lib')
+        a=Alignment(e);a.append(file=os.path.abspath(templates_ali),align_codes='all');b=len(a)
+        a.append(file=os.path.abspath(query_pir),align_codes=query_code)
+        a.salign(output='',max_gap_length=max_gap_length,gap_function=True,alignment_type='PAIRWISE',align_block=b,feature_weights=(1.,0.,0.,0.,0.,0.),overhang=0,gap_penalties_1d=(-450,0),gap_penalties_2d=(.35,1.2,.9,1.2,.6,8.6,1.2,0.,0.),similarity_flag=True)
+        a.write(file=output_ali,alignment_format='PIR');a.write(file=output_ali.replace('.ali','.pap'),alignment_format='PAP')
     return os.path.join(workdir,output_ali)
 
 def build_multi_model(workdir,ali_file,template_codes,sequence,n_models=5,assess_methods=None,use_hetatm=False):
     if assess_methods is None:assess_methods=(assess.DOPE,assess.GA341)
     with _in_dir(workdir):
-        env=Environ()
-        env.io.atom_files_directory=[os.path.dirname(os.path.abspath(ali_file)) or ".", "."]
-        env.io.hetatm=use_hetatm
-        a=AutoModel(env,alnfile=os.path.abspath(ali_file),knowns=template_codes,sequence=sequence,assess_methods=assess_methods)
+        e=Environ();e.io.atom_files_directory=[os.path.dirname(os.path.abspath(ali_file))or'.','.'];e.io.hetatm=use_hetatm
+        a=AutoModel(e,alnfile=os.path.abspath(ali_file),knowns=template_codes,sequence=sequence,assess_methods=assess_methods)
         a.starting_model=1;a.ending_model=n_models;a.make()
-    return sorted(glob.glob(os.path.join(workdir,f"{sequence}.B9999*.pdb")))
+    return sorted(glob.glob(os.path.join(workdir,f'{sequence}.B9999*.pdb')))
 
-def refine_loop(workdir,ini_model,sequence,loop_range,n_loop_models=10,md_level=None,atom_files_dir="."):
-    md_level=md_level or refine.very_fast
+def refine_loop(workdir,ini_model,sequence,loop_range,n_loop_models=10,md_level=None,atom_files_dir='.'):
+    if md_level is None:md_level=refine.very_fast
     s,e=loop_range
-    class L(LoopModel):
+    class _MyLoop(LoopModel):
         def select_loop_atoms(self):return Selection(self.residue_range(s,e))
     with _in_dir(workdir):
-        env=Environ();env.io.atom_files_directory=[atom_files_dir,"."]
-        m=L(env,inimodel=os.path.abspath(ini_model),sequence=sequence)
+        log.verbose();v=Environ();v.io.atom_files_directory=[atom_files_dir,'.']
+        m=_MyLoop(v,inimodel=os.path.abspath(ini_model),sequence=sequence)
         m.loop.starting_model=1;m.loop.ending_model=n_loop_models;m.loop.md_level=md_level;m.make()
-    return sorted(glob.glob(os.path.join(workdir,f"{sequence}.BL*.pdb")))
+    return sorted(glob.glob(os.path.join(workdir,f'{sequence}.BL*.pdb')))
 
-def build_model_with_ligand(workdir,ali_file,template_codes,sequence,restraint_atom_pairs=None,restraint_mean=3.5,restraint_stdev=0.1,n_models=5):
-    restraint_atom_pairs=restraint_atom_pairs or []
-    class M(AutoModel):
+def build_model_with_ligand(workdir,ali_file,template_codes,sequence,restraint_atom_pairs=None,restraint_mean=3.5,restraint_stdev=.1,n_models=5):
+    if restraint_atom_pairs is None:restraint_atom_pairs=[]
+    a,m,s=restraint_atom_pairs,restraint_mean,restraint_stdev
+    class _MyModel(AutoModel):
         def special_restraints(self,aln):
-            rsr=self.restraints
-            for i1,i2 in restraint_atom_pairs:
-                a=[self.atoms[i1],self.atoms[i2]]
-                rsr.add(forms.UpperBound(group=physical.upper_distance,feature=features.Distance(*a),mean=restraint_mean,stdev=restraint_stdev))
+            r=self.restraints
+            for i,j in a:r.add(forms.UpperBound(group=physical.upper_distance,feature=features.Distance(self.atoms[i],self.atoms[j]),mean=m,stdev=s))
     with _in_dir(workdir):
-        env=Environ();env.io.hetatm=True
-        env.io.atom_files_directory=[os.path.dirname(os.path.abspath(ali_file)) or ".", "."]
-        a=M(env,alnfile=os.path.abspath(ali_file),knowns=template_codes,sequence=sequence)
-        a.starting_model=1;a.ending_model=n_models;a.make()
-    return sorted(glob.glob(os.path.join(workdir,f"{sequence}.B9999*.pdb")))
+        e=Environ();e.io.hetatm=True;e.io.atom_files_directory=[os.path.dirname(os.path.abspath(ali_file))or'.','.']
+        x=_MyModel(e,alnfile=os.path.abspath(ali_file),knowns=template_codes,sequence=sequence)
+        x.starting_model=1;x.ending_model=n_models;x.make()
+    return sorted(glob.glob(os.path.join(workdir,f'{sequence}.B9999*.pdb')))
 
 def align2d_with_ss(workdir,template_pdb,template_chain,query_pir,query_code,output_ali=None,max_gap_length=50):
-    pdb_base=os.path.splitext(os.path.basename(template_pdb))[0]
-    tc=pdb_base+template_chain
-    output_ali=output_ali or f"{query_code}-{tc}.ali"
+    b=os.path.splitext(os.path.basename(template_pdb))[0];t=b+template_chain
+    if output_ali is None:output_ali=f'{query_code}-{t}.ali'
     with _in_dir(workdir):
-        env=Environ()
-        env.io.atom_files_directory=[os.path.dirname(os.path.abspath(template_pdb)) or ".", "."]
-        mdl=Model(env,file=template_pdb,model_segment=(f"FIRST:{template_chain}",f"LAST:{template_chain}"))
-        aln=Alignment(env)
-        aln.append_model(mdl,align_codes=tc,atom_files=template_pdb)
-        aln.append(file=os.path.abspath(query_pir),align_codes=query_code)
-        aln.align2d(max_gap_length=max_gap_length)
-        aln.write(file=output_ali,alignment_format="PIR")
+        e=Environ();e.io.atom_files_directory=[os.path.dirname(os.path.abspath(template_pdb))or'.','.']
+        a=Alignment(e)
+        a.append_model(Model(e,file=template_pdb,model_segment=(f'FIRST:{template_chain}',f'LAST:{template_chain}')),align_codes=t,atom_files=template_pdb)
+        a.append(file=os.path.abspath(query_pir),align_codes=query_code);a.align2d(max_gap_length=max_gap_length)
+        a.write(file=output_ali,alignment_format='PIR')
+        a.write(file=output_ali.replace('.ali','.pap'),alignment_format='PAP',alignment_features='INDICES HELIX BETA')
     return os.path.join(workdir,output_ali)
 
 def iterative_modeling(workdir,template_pdb,template_chain,query_pir,query_code,max_iterations=5,n_models=1):
-    tc=os.path.splitext(os.path.basename(template_pdb))[0]+template_chain
-    best=float("inf");bp=None
+    b=os.path.splitext(os.path.basename(template_pdb))[0];t=b+template_chain
+    k,p=float('inf'),None
     for i in range(1,max_iterations+1):
-        d=os.path.join(workdir,f"iter_{i:02d}");os.makedirs(d,exist_ok=True)
-        ali=align2d_with_ss(d,template_pdb,template_chain,query_pir,query_code)
-        pdbs=build_single_model(d,ali,tc,query_code,n_models)
-        env=Environ();env.libs.topology.read(file="$(LIB)/top_heav.lib");env.libs.parameters.read(file="$(LIB)/par.lib")
-        ib=float("inf");bp2=None
-        for p in pdbs:
-            m=complete_pdb(env,p);s=Selection(m);sc=s.assess_dope()
-            if sc<ib:ib,bp2=sc,p
-        if ib<best:best,bp=ib,bp2
-        else:break
-    return bp
+        d=os.path.join(workdir,f'iter_{i:02d}');os.makedirs(d,exist_ok=True)
+        print(f'\n=== 反復 {i}/{max_iterations} ===')
+        a=align2d_with_ss(workdir=d,template_pdb=template_pdb,template_chain=template_chain,query_pir=query_pir,query_code=query_code)
+        g=build_single_model(workdir=d,ali_file=a,template_code=t,sequence=query_code,n_models=n_models,assess_methods=(assess.DOPE,assess.GA341))
+        if not g:
+            print(f'  モデル生成に失敗しました (反復 {i})');break
+        e=Environ();e.libs.topology.read(file='$(LIB)/top_heav.lib');e.libs.parameters.read(file='$(LIB)/par.lib')
+        q,r=float('inf'),None
+        for x in g:
+            y=Selection(complete_pdb(e,x)).assess_dope()
+            if y<q:q,r=y,x
+        print(f'  最良 DOPE スコア: {q:.2f}  ({r})')
+        if q<k:k,p=q,r
+        else:
+            print('  スコアが改善しませんでした。反復を終了します。');break
+    print(f'\n最終ベストモデル: {p} (DOPE={k:.2f})')
+    return p
 
 def build_from_threading_ali(workdir,ali_file,template_code,sequence,n_models=5,assess_methods=None):
     if assess_methods is None:assess_methods=(assess.DOPE,assess.GA341)
     with _in_dir(workdir):
-        env=Environ()
-        env.io.atom_files_directory=[os.path.dirname(os.path.abspath(ali_file)) or ".", "."]
-        a=AutoModel(env,alnfile=os.path.abspath(ali_file),knowns=template_code,sequence=sequence,assess_methods=assess_methods)
+        e=Environ();e.io.atom_files_directory=[os.path.dirname(os.path.abspath(ali_file))or'.','.']
+        a=AutoModel(e,alnfile=os.path.abspath(ali_file),knowns=template_code,sequence=sequence,assess_methods=assess_methods)
         a.starting_model=1;a.ending_model=n_models;a.make()
-    pdbs=sorted(glob.glob(os.path.join(workdir,f"{sequence}.B9999*.pdb")))
-    env=Environ();env.libs.topology.read(file="$(LIB)/top_heav.lib");env.libs.parameters.read(file="$(LIB)/par.lib")
-    sc=[]
-    for p in pdbs:
-        m=complete_pdb(env,p);s=Selection(m);sc.append((s.assess_dope(),p))
-    sc.sort()
-    return [p for _,p in sc]
+    p=sorted(glob.glob(os.path.join(workdir,f'{sequence}.B9999*.pdb')))
+    e=Environ();e.libs.topology.read(file='$(LIB)/top_heav.lib');e.libs.parameters.read(file='$(LIB)/par.lib')
+    s=[]
+    for i in p:s.append((Selection(complete_pdb(e,i)).assess_dope(),i))
+    s.sort()
+    return[i for _,i in s]
 
 if __name__=="__main__":
     import sys,os,requests
